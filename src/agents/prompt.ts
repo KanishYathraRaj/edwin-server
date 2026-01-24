@@ -89,6 +89,7 @@ export function buildPrompt(prompt: string, memory: string) {
     - Canvas contains final content in SOLVE phase
     - upload_document_to_google_classroom MUST use canvas as content
     - Do NOT execute any tool in Both plan and solve mode. It will be executed by the system.
+    - Mark state as done when all tasks are done.
 
     User Prompt: 
     ${prompt}

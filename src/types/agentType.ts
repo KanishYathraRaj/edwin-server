@@ -10,5 +10,5 @@ export type Task = {
     tool_name: string;
     args: object;
     status: "todo" | "inprogress" | "done";
-    output?: object;
+    output?: any;
 }
