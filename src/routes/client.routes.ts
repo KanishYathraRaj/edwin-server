@@ -6,15 +6,13 @@ const router = Router();
 router.get('/chats', async (req, res) => {
     try {
         const { user_id } = req.query;
-        let query = 'SELECT * FROM agent_runs';
+        let query = 'SELECT id, title FROM agent_runs';
         const params: any[] = [];
 
         if (user_id) {
             query += ' WHERE user_id = $1';
             params.push(user_id);
         }
-
-        query += ' ORDER BY created_at DESC';
 
         const result = await db.query(query, params);
         res.json(result.rows);
