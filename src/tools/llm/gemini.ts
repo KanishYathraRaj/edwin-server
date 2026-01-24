@@ -7,9 +7,14 @@ console.log('GOOGLE_API_KEY Config:', {
 const ai = new GoogleGenAI({});
 
 export async function ask(question: string) {
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: question,
-  });
-  return response.text;
-}   
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: question,
+    });
+    return response.text;
+  } catch (error) {
+    console.error('Gemini Error:', error);
+    throw error;
+  }
+}
