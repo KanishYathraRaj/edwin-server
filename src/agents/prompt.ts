@@ -33,6 +33,7 @@ export function buildPrompt(prompt: string, memory: string) {
     - Call tools exactly as planned
     - Use tool outputs to update the canvas
     - Produce the final outcome
+    - **If you have any doubts, you can ask the user the required information**
 
     Rules for SOLVE:
 
@@ -43,7 +44,7 @@ export function buildPrompt(prompt: string, memory: string) {
     - The canvas must contain the final teacher-facing content
 
     ________________________________________
-    CURRENT MEMORY
+    CURRENT STATE
     ________________________________________
     
     ${memory}

@@ -7,9 +7,8 @@ import { AgentContext, Task } from "../types/agentType";
 import {
     updateState,
     updateHistory,
+    readState
 } from "../database/agentRuns";
-
-
 
 async function planAndSolve(prompt: string, id: number, ctx: AgentContext) {
     const ctxString = JSON.stringify(ctx, null, 2);
@@ -29,12 +28,10 @@ async function planAndSolve(prompt: string, id: number, ctx: AgentContext) {
 }
 
 export async function agent(prompt: string, id: number) {
-    let ctx: AgentContext = {
-        state: "plan",
-        tasks: [],
-    };
+    let ctx: AgentContext = await readState(id);
+    console.log("Initial Context", ctx);
     ctx = await planAndSolve(prompt, id, ctx);
-    console.log('Context:', ctx);
+    console.log("Final Context", ctx);
     await updateState(id, ctx);
     await updateHistory(id, prompt, ctx);
     return ctx;

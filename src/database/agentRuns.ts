@@ -55,3 +55,11 @@ export async function readMemory(id: number) {
     return result.rows[0]?.memory || {};
 }
 
+export async function readState(id: number) {
+    const result = await db.query(
+        `SELECT state FROM agent_runs WHERE id = $1`,
+        [id]
+    );
+    console.log('State read successfully for agent run:', id);
+    return result.rows[0]?.state || {};
+}

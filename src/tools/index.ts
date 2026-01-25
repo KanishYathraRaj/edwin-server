@@ -4,25 +4,7 @@ import { courseDetailsTool } from "./gcr/courseDetails";
 import { assignmentsTool } from "./gcr/assignments";
 import { studentsTool } from "./gcr/students";
 import { createAssignmentTool } from "./gcr/createAssignment";
-import { ask } from "./llm/llm";
-import { z } from "zod";
-
-// Wrapper for ask_llm to fit the tool interface
-const askLlmTool = {
-    name: "ask_llm",
-    schema: {
-        prompt: z.string()
-    },
-    handler: async ({ prompt }: { prompt: string }) => {
-        const res = await ask(prompt);
-        return {
-            content: [{
-                type: "text",
-                text: res
-            }]
-        };
-    }
-};
+import { askLlmTool } from "./llm/llm";
 
 export const tools = [
     {
@@ -41,7 +23,6 @@ export const tools = [
         name: "ask_llm",
         originalTool: askLlmTool
     }
-    // Add other tools as needed needed by the prompt definitions
 ];
 
 export async function runTool(toolName: string, args: any) {

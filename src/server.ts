@@ -1,10 +1,12 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from "cors"
 import { db } from './db';
 import { agent } from './agents/agent';
 import clientRouter from './routes/client.routes';
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
 app.get('/health', (_, res) => {
@@ -23,8 +25,7 @@ app.get('/test-db', async (_, res) => {
 
 app.post("/ask", async (req, res) => {
   try {
-    const { prompt } = req.body;
-    const id = 1;
+    const { prompt, id } = req.body;
 
     if (typeof prompt !== "string" || !prompt.trim()) {
       return res.status(400).json({
