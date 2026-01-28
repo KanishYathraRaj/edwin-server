@@ -1,108 +1,68 @@
-import { Router } from "express";
-import { db } from "../db";
+import { Router } from "express"
+import { askStream } from "../workflows/agent-chat/llm/llm"
+import { db } from "../lib/firebase"
+import { doc, updateDoc, arrayUnion } from "firebase/firestore";
 
 const router = Router();
 
-router.get('/chats', async (req, res) => {
+router.post('/agent-chat', async (req, res) => {
     try {
-        const { user_id } = req.query;
-        let query = 'SELECT id, title FROM agent_runs';
-        const params: any[] = [];
+        const { message, userId, courseId } = req.body;
 
-        if (user_id) {
-            query += ' WHERE user_id = $1';
-            params.push(user_id);
+        if (!message) {
+            return res.status(400).json({ error: "Message is required" });
         }
 
-        const result = await db.query(query, params);
-        res.json(result.rows);
-    } catch (error) {
-        console.error('Database Query Error:', error);
-        res.status(500).json({ error: 'Database connection failed', details: error });
-    }
-});
+        // Set headers for Server-Sent Events
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
 
-router.get('/chat/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const result = await db.query(
-            `SELECT * FROM agent_runs WHERE id = $1`,
-            [id]
-        );
-        res.json(result.rows[0]);
-    } catch (error) {
-        console.error('Database Query Error:', error);
-        res.status(500).json({ error: 'Database connection failed', details: error });
-    }
-});
+        // Send initial connection message
+        res.write('data: {"type":"start"}\n\n');
 
-router.post('/chat', async (req, res) => {
-    try {
-        const { title, user_id } = req.body;
-        const result = await db.query(
-            'INSERT INTO agent_runs (title, user_id) VALUES ($1, $2) RETURNING *',
-            [title, user_id]
-        );
-        res.status(201).json(result.rows[0]);
-    } catch (error) {
-        console.error('Database Insert Error:', error);
-        res.status(500).json({ error: 'Failed to create agent run', details: error });
-    }
-});
+        let fullResponse = "";
 
-router.post('/chat/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { message } = req.body;
-        const result = await db.query(
-            `UPDATE agent_runs SET message = $2 WHERE id = $1 RETURNING *`,
-            [id, message]
-        );
-        res.json(result.rows[0]);
-    } catch (error) {
-        console.error('Database Update Error:', error);
-        res.status(500).json({ error: 'Database connection failed', details: error });
-    }
-});
-
-router.delete('/chat/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const result = await db.query(
-            `DELETE FROM agent_runs WHERE id = $1 RETURNING *`,
-            [id]
-        );
-        res.json(result.rows[0]);
-    } catch (error) {
-        console.error('Database Delete Error:', error);
-        res.status(500).json({ error: 'Database connection failed', details: error });
-    }
-});
-
-router.patch('/chat/:id/canvas', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { canvas } = req.body;
-
-        if (!canvas) {
-            return res.status(400).json({ error: "Canvas content is required" });
+        // Stream the response
+        for await (const chunk of askStream(message)) {
+            fullResponse += chunk;
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
         }
 
-        const result = await db.query(
-            `UPDATE agent_runs 
-             SET state = jsonb_set(
-                 COALESCE(state, '{}'::jsonb), 
-                 '{canvas}', 
-                 $1::jsonb
-             )
-             WHERE id = $2
-             RETURNING *`,
-            [JSON.stringify(canvas), id]
-        );
-        res.json(result.rows[0]);
+        // After streaming is done, save to history if IDs are provided
+        if (userId && courseId && db) {
+            try {
+                const courseRef = doc(db, "users", userId, "courses", courseId);
+
+                await updateDoc(courseRef, {
+                    history: arrayUnion(
+                        {
+                            role: "user",
+                            content: message,
+                            timestamp: new Date().toISOString()
+                        },
+                        {
+                            role: "system",
+                            content: fullResponse,
+                            timestamp: new Date().toISOString()
+                        }
+                    )
+                });
+                console.log(`Saved chat history for user ${userId}, course ${courseId}`);
+            } catch (dbError) {
+                console.error("Error saving chat history:", dbError);
+                // We don't fail the request here since the response was already streamed
+            }
+        }
+
+        // Send completion message
+        res.write('data: {"type":"done"}\n\n');
+
+        res.end();
     } catch (error) {
-        console.error('Database Update Error:', error);
-        res.status(500).json({ error: 'Failed to update canvas', details: error });
+        console.error("Error in agent-chat route:", error);
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Internal server error' })}\n\n`);
+        res.end();
     }
 });
 

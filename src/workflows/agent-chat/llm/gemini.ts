@@ -18,3 +18,21 @@ export async function ask(question: string) {
     throw error;
   }
 }
+
+export async function* askStream(question: string): AsyncGenerator<string> {
+  try {
+    const stream = await ai.models.generateContentStream({
+      model: "gemini-2.5-flash",
+      contents: question,
+    });
+
+    for await (const chunk of stream) {
+      if (chunk.text) {
+        yield chunk.text;
+      }
+    }
+  } catch (error) {
+    console.error('Gemini Stream Error:', error);
+    throw error;
+  }
+}

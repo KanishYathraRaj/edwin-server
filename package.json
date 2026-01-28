@@ -5,6 +5,8 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "firebase": "^12.8.0",
+    "firebase-admin": "^13.6.0",
     "googleapis": "^170.1.0",
     "pg": "^8.17.1",
     "zod": "^4.3.5"

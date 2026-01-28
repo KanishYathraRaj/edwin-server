@@ -1,4 +1,7 @@
-export function buildPrompt(prompt: string, memory: string) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildPrompt = buildPrompt;
+function buildPrompt(prompt, memory) {
     return `
     You are an AI agent that assists teachers with their workflows.
 
@@ -94,5 +97,5 @@ export function buildPrompt(prompt: string, memory: string) {
 
     User Prompt: 
     ${prompt}
-    `
+    `;
 }
