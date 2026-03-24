@@ -49,3 +49,40 @@ export const askLlmTool = {
         };
     }
 };
+
+export function extractJSONFromLLM(response: string): any {
+    if (!response) throw new Error("Empty LLM response");
+
+    // Remove markdown code blocks
+    response = response.replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+
+    // Try direct parse first
+    try {
+        return JSON.parse(response);
+    } catch { }
+
+    // Extract JSON substring
+    const firstBrace = response.indexOf("{");
+    const lastBrace = response.lastIndexOf("}");
+
+    if (firstBrace !== -1 && lastBrace !== -1) {
+        const jsonString = response.slice(firstBrace, lastBrace + 1);
+
+        try {
+            return JSON.parse(jsonString);
+        } catch { }
+    }
+
+    // Attempt minor repairs
+    try {
+        const repaired = response
+            .replace(/(\w+):/g, '"$1":') // add quotes to keys
+            .replace(/'/g, '"'); // convert single quotes
+
+        return JSON.parse(repaired);
+    } catch { }
+
+    throw new Error("Failed to extract JSON from LLM response");
+}
