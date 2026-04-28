@@ -1,72 +1,69 @@
-import { ask } from "../agent-chat/llm/llm";
+import { askStream } from "../agent-chat/llm/llm";
 import { searchRecords } from "../../rag/pineconeRAG";
 
-export async function prepareContent(userId: string, courseId: string, topics: string[], description: string) {
-
-    let filter = {
-        userId: userId,
-        courseId: courseId
-    }
-
-    let query = `Get all the content related to these topics : ${topics.join(", ")}`
-    const records = await searchRecords(query, filter);
+export async function* prepareContentStream(
+    userId: string,
+    courseId: string,
+    topics: string[],
+    description: string
+): AsyncGenerator<string> {
+    const filter = { userId, courseId };
 
     let courseContext = "";
     try {
-        if (records && records.result && records.result.hits) {
-            courseContext = records.result.hits.map((hit: any) => hit.fields?.chunk_text || "").join('\n');
+        const records = await searchRecords(
+            `Educational content about: ${topics.join(", ")}`,
+            filter
+        );
+        if (records?.result?.hits) {
+            courseContext = records.result.hits
+                .map((hit: any) => hit.fields?.chunk_text || "")
+                .join("\n")
+                .slice(0, 4000);
         }
     } catch (e) {
-        console.error("Error parsing Pinecone records:", e);
+        console.error("Pinecone search error:", e);
     }
 
     const topicsStr = topics.join(", ");
-    const instrStr = description ? `Keep in mind: ${description}.` : "";
-    const contextStr = courseContext ? `\n\nSome course material for context:\n${courseContext.slice(0, 2000)}` : "";
+    const instrStr = description ? `\nAdditional focus: ${description}` : "";
+    const contextStr = courseContext
+        ? `\n\nCourse material reference:\n${courseContext}`
+        : "";
 
-    // Ask a single prompt to save time, using text markers to parse the response
-    const prompt = `Write a comprehensive educational content guide about: ${topicsStr}. ${instrStr}
-${contextStr}
+    const prompt = `You are an expert educator creating comprehensive teaching content.
 
-You MUST structure your response EXACTLY with the following four markers. Do not add markdown to the markers.
+Topic(s): ${topicsStr}${instrStr}${contextStr}
 
----EXPLANATION---
-(Write the detailed educational explanation here. Write naturally, use paragraphs.)
+Write thorough, well-structured educational content in clean Markdown. Use this exact structure:
 
----KEY_POINTS---
-(List 5 important key points. Just write them line by line.)
+# [Clear topic title]
 
----EXAMPLES---
-(Give 3 practical real-world examples. Just write them line by line.)
+## Overview
+[2–3 sentence introduction]
 
----QUESTIONS---
-(Write 4 review questions based on the content. Just write them line by line.)
-`;
+## Detailed Explanation
+[Multiple paragraphs. Use **bold** for key terms.]
 
-    console.log("Generating content for topics:", topicsStr);
+## Key Points
+- [Key point 1]
+- [Key point 2]
+- [Key point 3]
+- [Key point 4]
+- [Key point 5]
 
-    const rawResponse = await ask(prompt) || "";
+## Practical Examples
+1. **[Example title]**: [Description and explanation]
+2. **[Example title]**: [Description and explanation]
+3. **[Example title]**: [Description and explanation]
 
-    // Parse the sections using the text markers
-    const parts = rawResponse.split(/---EXPLANATION---|---KEY_POINTS---|---EXAMPLES---|---QUESTIONS---/i);
-    
-    const explanationRaw = parts[1] || "";
-    const keyPointsRaw = parts[2] || "";
-    const examplesRaw = parts[3] || "";
-    const questionsRaw = parts[4] || "";
+## Review Questions
+1. [Question that tests understanding]
+2. [Question that requires application]
+3. [Question that encourages analysis]
+4. [Question that connects to broader concepts]
 
-    // Parse numbered/bullet list into array
-    function parseList(text: string): string[] {
-        return text
-            .split('\n')
-            .map(line => line.replace(/^[\s]*[\d]+[.)]\s*/, '').replace(/^[-•*]\s*/, '').trim())
-            .filter(line => line.length > 5);
-    }
+Be thorough, accurate, and pedagogically sound.`;
 
-    return {
-        explanation: explanationRaw.trim(),
-        key_points: parseList(keyPointsRaw),
-        examples: parseList(examplesRaw),
-        questions: parseList(questionsRaw),
-    };
-}
+    yield* askStream(prompt);
+}

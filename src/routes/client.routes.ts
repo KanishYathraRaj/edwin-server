@@ -5,7 +5,7 @@ import { db } from '../lib/firebase';
 import { doc, updateDoc, arrayUnion, setDoc } from 'firebase/firestore';
 import { buildPrompt } from '../workflows/agent-chat/prompt';
 import { planLesson } from '../workflows/lesson-planner/planner';
-import { prepareContent } from '../workflows/content-prep/content-prep';
+import { prepareContentStream } from '../workflows/content-prep/content-prep';
 import { generateQuestionBank } from '../workflows/question-bank/question-bank';
 import { generateQuiz, QuizConfig } from '../workflows/quiz-gen/quiz-gen';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
@@ -96,21 +96,22 @@ router.post('/content-prep', requireAuth, validate(contentPrepSchema), async (re
     const { courseId, topics, description } = req.body;
     const userId = (req as AuthenticatedRequest).uid;
 
-    const generatedContent = await prepareContent(userId, courseId, topics, description);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.write('data: {"type":"start"}\n\n');
 
-    if (db) {
-        const courseRef = doc(db, 'users', userId, 'courses', courseId);
-        const material = {
-            id: `mat-${Date.now()}`,
-            topics,
-            description,
-            content: generatedContent,
-            timestamp: new Date().toISOString(),
-        };
-        await updateDoc(courseRef, { preparedContent: arrayUnion(material) });
+    try {
+        for await (const chunk of prepareContentStream(userId, courseId, topics, description)) {
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+        }
+        res.write('data: {"type":"done"}\n\n');
+    } catch (error: any) {
+        console.error('content-prep error:', error.message);
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Content generation failed' })}\n\n`);
+    } finally {
+        res.end();
     }
-
-    res.json({ success: true, content: generatedContent });
 });
 
 router.post('/generate-questions', requireAuth, validate(questionBankSchema), async (req, res) => {
