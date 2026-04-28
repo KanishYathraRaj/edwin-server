@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { upsertRecords, deleteRecords } from '../rag/pineconeRAG';
-import { db } from '../lib/firebase';
 import multer from 'multer';
-import { doc, setDoc, arrayUnion } from 'firebase/firestore';
+import { adminDb, FieldValue } from '../lib/firebase-admin';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
@@ -55,8 +54,8 @@ router.post('/upload_syllabus', requireAuth, upload.single('data'), async (req, 
     await upsertRecords(req.file.buffer, filter);
 
     if (filter.courseId) {
-        const courseRef = doc(db, 'users', userId, 'courses', filter.courseId);
-        await setDoc(courseRef, {
+        const courseRef = adminDb.doc(`users/${userId}/courses/${filter.courseId}`);
+        await courseRef.set({
             syllabus: { name: req.file.originalname, uploadedAt: new Date().toISOString() },
         }, { merge: true }).catch(e => console.error('Firestore syllabus update failed:', e));
     }
@@ -80,9 +79,9 @@ router.post('/upload_reference', requireAuth, upload.array('references', 10), as
     }
 
     if (baseFilter.courseId) {
-        const courseRef = doc(db, 'users', userId, 'courses', baseFilter.courseId);
-        await setDoc(courseRef, {
-            references: arrayUnion(
+        const courseRef = adminDb.doc(`users/${userId}/courses/${baseFilter.courseId}`);
+        await courseRef.set({
+            references: FieldValue.arrayUnion(
                 ...files.map(f => ({ name: f.originalname, uploadedAt: new Date().toISOString() }))
             ),
         }, { merge: true }).catch(e => console.error('Firestore reference update failed:', e));

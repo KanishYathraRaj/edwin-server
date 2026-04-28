@@ -1,6 +1,5 @@
 import { ask, extractJSONFromLLM } from '../agent-chat/llm/llm';
-import { db } from '../../lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { adminDb } from '../../lib/firebase-admin';
 import { searchRecords } from '../../rag/pineconeRAG';
 
 export type QuizType = 'mcq' | 'tf' | 'short' | 'mixed';
@@ -21,8 +20,7 @@ const typeGuide: Record<QuizType, string> = {
 };
 
 export async function generateQuiz(userId: string, courseId: string, config: QuizConfig) {
-    const courseRef = doc(db, 'users', userId, 'courses', courseId);
-    const courseSnap = await getDoc(courseRef);
+    const courseSnap = await adminDb.doc(`users/${userId}/courses/${courseId}`).get();
     const course = courseSnap.data();
 
     const searchQuery = config.topics?.length

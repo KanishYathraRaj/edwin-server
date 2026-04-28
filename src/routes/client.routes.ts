@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { askStream } from '../workflows/agent-chat/llm/llm';
-import { db } from '../lib/firebase';
-import { doc, updateDoc, arrayUnion, setDoc } from 'firebase/firestore';
+import { adminDb, FieldValue } from '../lib/firebase-admin';
 import { buildPrompt } from '../workflows/agent-chat/prompt';
 import { planLesson } from '../workflows/lesson-planner/planner';
 import { prepareContentStream } from '../workflows/content-prep/content-prep';
@@ -63,15 +62,13 @@ router.post('/agent-chat', requireAuth, validate(agentChatSchema), async (req, r
         }
 
         // Persist chat after streaming completes
-        if (db) {
-            const courseRef = doc(db, 'users', userId, 'courses', courseId);
-            await updateDoc(courseRef, {
-                history: arrayUnion(
-                    { role: 'user', content: message, timestamp: new Date().toISOString() },
-                    { role: 'system', content: fullResponse, timestamp: new Date().toISOString() }
-                ),
-            }).catch(err => console.error('History save failed:', err));
-        }
+        const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
+        await courseRef.update({
+            history: FieldValue.arrayUnion(
+                { role: 'user', content: message, timestamp: new Date().toISOString() },
+                { role: 'system', content: fullResponse, timestamp: new Date().toISOString() }
+            ),
+        }).catch(err => console.error('History save failed:', err));
 
         res.write('data: {"type":"done"}\n\n');
     } catch (error: any) {
@@ -87,8 +84,8 @@ router.post('/plan-lesson', requireAuth, validate(courseActionSchema), async (re
     const userId = (req as AuthenticatedRequest).uid;
 
     const syllabus = await planLesson(userId, courseId);
-    const courseRef = doc(db, 'users', userId, 'courses', courseId);
-    await setDoc(courseRef, { lessonPlan: syllabus }, { merge: true });
+    const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
+    await courseRef.set({ lessonPlan: syllabus }, { merge: true });
     res.json({ success: true, syllabus });
 });
 
@@ -119,8 +116,8 @@ router.post('/generate-questions', requireAuth, validate(questionBankSchema), as
     const userId = (req as AuthenticatedRequest).uid;
 
     const questionBank = await generateQuestionBank(instruction, userId, courseId);
-    const courseRef = doc(db, 'users', userId, 'courses', courseId);
-    await setDoc(courseRef, { questionBank }, { merge: true });
+    const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
+    await courseRef.set({ questionBank }, { merge: true });
     res.json({ success: true, questionBank });
 });
 
