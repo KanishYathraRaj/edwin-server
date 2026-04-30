@@ -2,87 +2,73 @@ import { ask as askGemini, askStream as askGeminiStream } from "./gemini";
 import { ask as askOllama, askStream as askOllamaStream } from "./ollama";
 import { z } from "zod";
 
-console.log('LLM Config:', process.env.LLM);
-
 export async function ask(prompt: string) {
-    let model = process.env.LLM;
+    const model = process.env.LLM;
 
     if (model === "ollama") {
-        const answer = await askOllama(prompt);
-        return answer;
+        return askOllama(prompt);
     }
-    else if (model === "gemini") {
-        const answer = await askGemini(prompt);
-        return answer;
+    if (model === "gemini") {
+        return askGemini(prompt);
     }
-    else {
-        throw new Error("LLM not found");
-    }
+    throw new Error(`Unknown LLM provider: "${model}". Set LLM=gemini or LLM=ollama.`);
 }
 
 export async function* askStream(prompt: string): AsyncGenerator<string> {
-    let model = process.env.LLM;
+    const model = process.env.LLM;
 
     if (model === "ollama") {
         yield* askOllamaStream(prompt);
+        return;
     }
-    else if (model === "gemini") {
+    if (model === "gemini") {
         yield* askGeminiStream(prompt);
+        return;
     }
-    else {
-        throw new Error("LLM not found");
-    }
+    throw new Error(`Unknown LLM provider: "${model}". Set LLM=gemini or LLM=ollama.`);
 }
 
 export const askLlmTool = {
     name: "ask_llm",
-    schema: {
-        prompt: z.string()
-    },
+    schema: { prompt: z.string() },
     handler: async ({ prompt }: { prompt: string }) => {
         const res = await ask(prompt);
-        return {
-            content: [{
-                type: "text",
-                text: res
-            }]
-        };
+        return { content: [{ type: "text", text: res }] };
     }
 };
 
 export function extractJSONFromLLM(response: string): any {
     if (!response) throw new Error("Empty LLM response");
 
-    // Remove markdown code blocks
-    response = response.replace(/```json/g, "")
-        .replace(/```/g, "")
+    const cleaned = response
+        .replace(/```json\s*/gi, "")
+        .replace(/```\s*/g, "")
         .trim();
 
     // Try direct parse first
     try {
-        return JSON.parse(response);
+        return JSON.parse(cleaned);
     } catch { }
 
-    // Extract JSON substring
-    const firstBrace = response.indexOf("{");
-    const lastBrace = response.lastIndexOf("}");
+    // Extract the outermost JSON object or array
+    const firstBrace  = cleaned.indexOf("{");
+    const firstBracket = cleaned.indexOf("[");
+    const lastBrace   = cleaned.lastIndexOf("}");
+    const lastBracket = cleaned.lastIndexOf("]");
 
-    if (firstBrace !== -1 && lastBrace !== -1) {
-        const jsonString = response.slice(firstBrace, lastBrace + 1);
-
+    // Try object extraction
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
         try {
-            return JSON.parse(jsonString);
+            return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
         } catch { }
     }
 
-    // Attempt minor repairs
-    try {
-        const repaired = response
-            .replace(/(\w+):/g, '"$1":') // add quotes to keys
-            .replace(/'/g, '"'); // convert single quotes
+    // Try array extraction
+    if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+        try {
+            return JSON.parse(cleaned.slice(firstBracket, lastBracket + 1));
+        } catch { }
+    }
 
-        return JSON.parse(repaired);
-    } catch { }
-
-    throw new Error("Failed to extract JSON from LLM response");
+    throw new Error("Failed to extract valid JSON from LLM response");
 }

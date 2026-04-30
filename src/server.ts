@@ -3,10 +3,16 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import clientRouter from './routes/client.routes';
 import resourceRouter from './routes/resource.routes';
-import './lib/firebase';
 
 // Validate required environment variables at startup
-const required = ['GOOGLE_API_KEY', 'PINECONE_API_KEY', 'FIREBASE_API_KEY', 'FIREBASE_PROJECT_ID'];
+const required = [
+    'GOOGLE_API_KEY',
+    'PINECONE_API_KEY',
+    'FIREBASE_PROJECT_ID',
+    'FIREBASE_ADMIN_CLIENT_EMAIL',
+    'FIREBASE_ADMIN_PRIVATE_KEY',
+    'LLM',
+];
 const missing = required.filter(k => !process.env[k]);
 if (missing.length > 0) {
     console.error(`Missing required environment variables: ${missing.join(', ')}`);
@@ -22,7 +28,6 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3001')
 
 app.use(cors({
     origin: (origin, cb) => {
-        // Allow requests with no origin (e.g. curl, server-to-server)
         if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
         cb(new Error(`CORS: origin ${origin} not allowed`));
     },
@@ -33,6 +38,15 @@ app.use(express.json({ limit: '1mb' }));
 
 // Simple in-memory rate limiter: 60 requests per minute per IP
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+// Evict stale entries every 5 minutes to prevent unbounded memory growth
+setInterval(() => {
+    const now = Date.now();
+    for (const [ip, entry] of rateLimitMap) {
+        if (now > entry.resetAt) rateLimitMap.delete(ip);
+    }
+}, 5 * 60_000).unref();
+
 app.use((req: Request, res: Response, next: NextFunction) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
