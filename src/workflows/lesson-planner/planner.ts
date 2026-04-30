@@ -2,41 +2,40 @@ import { searchRecords } from "../../rag/pineconeRAG";
 import { ask, extractJSONFromLLM } from "../agent-chat/llm/llm";
 
 async function planLesson(userId: string, courseId: string) {
-    let filter = {
-        userId: userId,
-        courseId: courseId,
-        source: 'syllabus'
+    const filter = { userId, courseId, source: 'syllabus' };
+    const content = await searchRecords("Get all content for syllabus planning", filter);
+
+    const hits = content?.result?.hits ?? [];
+    const contextText = hits
+        .map((hit: any) => hit.fields?.chunk_text || '')
+        .filter(Boolean)
+        .join('\n');
+
+    if (!contextText) {
+        throw new Error('No syllabus content found. Please upload a syllabus in Resources first.');
     }
 
-    let query = "Get all the content for syllabus planning";
+    const prompt = `You are a syllabus planning agent. Your task is to plan a structured syllabus for a course based on the provided content. List all topics one by one properly.
 
-    const content = await searchRecords(query, filter);
+Content:
+${contextText}
 
-    let prompt = `
-    You are a syllabus planning agent. Your task is to plan a syllabus for a course based on the provided content.
-    list all the topics one by one properly.
-    
-    Content: ${content.result.hits.map((hit: any) => hit.fields.chunk_text).join('\n')}
-    
+Return ONLY valid JSON — no extra text or markdown:
+{
+    "syllabus": [
+        {
+            "unit": "Unit Name",
+            "topics": [
+                "Topic 1",
+                "Topic 2",
+                "Topic 3"
+            ]
+        }
+    ]
+}`;
 
-    Your Response Strictly in JSON format with the following structure:
-    {
-        "syllabus": [
-            {
-                "unit": "Unit Name",
-                "topics": [
-                    "Topic 1",
-                    "Topic 2",
-                    "Topic 3",
-                    "......"
-                ]
-            }
-        ]
-    }
-    `
     const response = await ask(prompt);
-    const json_response = extractJSONFromLLM(response);
-    return json_response;
+    return extractJSONFromLLM(response);
 }
 
 export { planLesson };

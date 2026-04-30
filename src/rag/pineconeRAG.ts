@@ -79,7 +79,7 @@ export async function searchRecords(query: string, filter?: Record<string, unkno
         rerank: {
             model: 'bge-reranker-v2-m3',
             topN: 10,
-            rankFields: ['text'],
+            rankFields: ['chunk_text'],
         },
     });
     return results;
@@ -89,4 +89,9 @@ export async function deleteRecords(ids: string[]) {
     const idx = await index;
     await idx.deleteMany(ids);
     console.log(`Deleted ${ids.length} records`);
+}
+
+export async function deleteRecordsByFilter(filter: Record<string, unknown>) {
+    const idx = await index;
+    await (idx as any).deleteMany({ filter });
 }
