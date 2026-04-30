@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { upsertRecords, deleteRecords } from '../rag/pineconeRAG';
-import multer from 'multer';
+import { upsertRecords, deleteRecordsByFilter } from '../rag/pineconeRAG';
 import { adminDb, FieldValue } from '../lib/firebase-admin';
+import multer from 'multer';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
@@ -47,20 +47,29 @@ router.post('/upload_syllabus', requireAuth, upload.single('data'), async (req, 
         filename: req.file.originalname,
         userId,
     });
-
-    // Ensure the authenticated user matches the filter userId
     filter.userId = userId;
 
-    await upsertRecords(req.file.buffer, filter);
+    try {
+        // Delete existing syllabus vectors before uploading new ones
+        if (filter.courseId) {
+            await deleteRecordsByFilter({ userId, courseId: String(filter.courseId), source: 'syllabus' })
+                .catch(e => console.error('Failed to clear old syllabus vectors:', e));
+        }
 
-    if (filter.courseId) {
-        const courseRef = adminDb.doc(`users/${userId}/courses/${filter.courseId}`);
-        await courseRef.set({
-            syllabus: { name: req.file.originalname, uploadedAt: new Date().toISOString() },
-        }, { merge: true }).catch(e => console.error('Firestore syllabus update failed:', e));
+        await upsertRecords(req.file.buffer, filter);
+
+        if (filter.courseId) {
+            const courseRef = adminDb.doc(`users/${userId}/courses/${filter.courseId}`);
+            await courseRef.set({
+                syllabus: { name: req.file.originalname, uploadedAt: new Date().toISOString() },
+            }, { merge: true }).catch(e => console.error('Firestore syllabus update failed:', e));
+        }
+
+        res.json({ success: true, message: 'Syllabus uploaded successfully' });
+    } catch (error: any) {
+        console.error('upload_syllabus error:', error.message);
+        res.status(500).json({ error: error.message || 'Upload failed' });
     }
-
-    res.json({ success: true, message: 'Syllabus uploaded successfully' });
 });
 
 router.post('/upload_reference', requireAuth, upload.array('references', 10), async (req, res) => {
@@ -74,30 +83,74 @@ router.post('/upload_reference', requireAuth, upload.array('references', 10), as
     const baseFilter = parseFilter(req.body.filter, { source: 'reference', userId });
     baseFilter.userId = userId;
 
-    for (const file of files) {
-        await upsertRecords(file.buffer, { ...baseFilter, filename: file.originalname });
-    }
+    try {
+        for (const file of files) {
+            await upsertRecords(file.buffer, { ...baseFilter, filename: file.originalname });
+        }
 
-    if (baseFilter.courseId) {
-        const courseRef = adminDb.doc(`users/${userId}/courses/${baseFilter.courseId}`);
-        await courseRef.set({
-            references: FieldValue.arrayUnion(
-                ...files.map(f => ({ name: f.originalname, uploadedAt: new Date().toISOString() }))
-            ),
-        }, { merge: true }).catch(e => console.error('Firestore reference update failed:', e));
-    }
+        if (baseFilter.courseId) {
+            const courseRef = adminDb.doc(`users/${userId}/courses/${baseFilter.courseId}`);
+            await courseRef.set({
+                references: FieldValue.arrayUnion(
+                    ...files.map(f => ({ name: f.originalname, uploadedAt: new Date().toISOString() }))
+                ),
+            }, { merge: true }).catch(e => console.error('Firestore reference update failed:', e));
+        }
 
-    res.json({ success: true, message: `${files.length} reference(s) uploaded` });
+        res.json({ success: true, message: `${files.length} reference(s) uploaded` });
+    } catch (error: any) {
+        console.error('upload_reference error:', error.message);
+        res.status(500).json({ error: error.message || 'Upload failed' });
+    }
 });
 
-router.delete('/remove_syllabus/:id', requireAuth, async (req, res) => {
-    await deleteRecords([String(req.params.id)]);
-    res.json({ success: true });
+// Delete all syllabus vectors for a course (filter-based, ownership enforced via userId from token)
+router.delete('/remove_syllabus', requireAuth, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).uid;
+    const courseId = String(req.query.courseId || '');
+
+    if (!courseId) {
+        res.status(400).json({ error: 'courseId query parameter is required' });
+        return;
+    }
+
+    try {
+        await deleteRecordsByFilter({ userId, courseId, source: 'syllabus' });
+        const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
+        await courseRef.update({ syllabus: FieldValue.delete() });
+        res.json({ success: true });
+    } catch (error: any) {
+        console.error('remove_syllabus error:', error.message);
+        res.status(500).json({ error: 'Failed to remove syllabus' });
+    }
 });
 
-router.delete('/remove_reference/:id', requireAuth, async (req, res) => {
-    await deleteRecords([String(req.params.id)]);
-    res.json({ success: true });
+// Delete a specific reference by filename (ownership enforced via userId from token)
+router.delete('/remove_reference', requireAuth, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).uid;
+    const courseId = String(req.query.courseId || '');
+    const filename = String(req.query.filename || '');
+
+    if (!courseId || !filename) {
+        res.status(400).json({ error: 'courseId and filename query parameters are required' });
+        return;
+    }
+
+    try {
+        await deleteRecordsByFilter({ userId, courseId, source: 'reference', filename });
+
+        // Remove from the Firestore references array
+        const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
+        const courseSnap = await courseRef.get();
+        const refs: any[] = courseSnap.data()?.references ?? [];
+        const updatedRefs = refs.filter((r: any) => r.name !== filename);
+        await courseRef.update({ references: updatedRefs });
+
+        res.json({ success: true });
+    } catch (error: any) {
+        console.error('remove_reference error:', error.message);
+        res.status(500).json({ error: 'Failed to remove reference' });
+    }
 });
 
 export default router;

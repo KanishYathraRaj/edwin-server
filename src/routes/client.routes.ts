@@ -83,10 +83,15 @@ router.post('/plan-lesson', requireAuth, validate(courseActionSchema), async (re
     const { courseId } = req.body;
     const userId = (req as AuthenticatedRequest).uid;
 
-    const syllabus = await planLesson(userId, courseId);
-    const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
-    await courseRef.set({ lessonPlan: syllabus }, { merge: true });
-    res.json({ success: true, syllabus });
+    try {
+        const syllabus = await planLesson(userId, courseId);
+        const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
+        await courseRef.set({ lessonPlan: syllabus }, { merge: true });
+        res.json({ success: true, syllabus });
+    } catch (error: any) {
+        console.error('plan-lesson error:', error.message);
+        res.status(500).json({ error: error.message || 'Lesson planning failed' });
+    }
 });
 
 router.post('/content-prep', requireAuth, validate(contentPrepSchema), async (req, res) => {
@@ -115,19 +120,29 @@ router.post('/generate-questions', requireAuth, validate(questionBankSchema), as
     const { courseId, instruction } = req.body;
     const userId = (req as AuthenticatedRequest).uid;
 
-    const questionBank = await generateQuestionBank(instruction, userId, courseId);
-    const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
-    await courseRef.set({ questionBank }, { merge: true });
-    res.json({ success: true, questionBank });
+    try {
+        const questionBank = await generateQuestionBank(instruction, userId, courseId);
+        const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
+        await courseRef.set({ questionBank }, { merge: true });
+        res.json({ success: true, questionBank });
+    } catch (error: any) {
+        console.error('generate-questions error:', error.message);
+        res.status(500).json({ error: error.message || 'Question bank generation failed' });
+    }
 });
 
 router.post('/generate-quiz', requireAuth, validate(quizGenSchema), async (req, res) => {
     const { courseId, type, difficulty, count, topics } = req.body;
     const userId = (req as AuthenticatedRequest).uid;
 
-    const config: QuizConfig = { type, difficulty, count, topics };
-    const quiz = await generateQuiz(userId, courseId, config);
-    res.json({ success: true, quiz });
+    try {
+        const config: QuizConfig = { type, difficulty, count, topics };
+        const quiz = await generateQuiz(userId, courseId, config);
+        res.json({ success: true, quiz });
+    } catch (error: any) {
+        console.error('generate-quiz error:', error.message);
+        res.status(500).json({ error: error.message || 'Quiz generation failed' });
+    }
 });
 
 // Global route error wrapper
