@@ -5,7 +5,7 @@ import { adminDb, FieldValue } from '../lib/firebase-admin';
 import { buildPrompt } from '../workflows/agent-chat/prompt';
 import { planLesson } from '../workflows/lesson-planner/planner';
 import { prepareContentStream } from '../workflows/content-prep/content-prep';
-import { generateQuestionBank } from '../workflows/question-bank/question-bank';
+import { generateQuestions, QBConfig } from '../workflows/question-bank/question-bank';
 import { generateQuiz, QuizConfig } from '../workflows/quiz-gen/quiz-gen';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
@@ -31,7 +31,11 @@ const contentPrepSchema = z.object({
 
 const questionBankSchema = z.object({
     courseId: z.string().min(1, 'courseId is required'),
-    instruction: z.string().min(1, 'Instruction is required').max(1000),
+    type: z.enum(['mcq', 'tf', 'short', 'mixed']).default('mixed'),
+    difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
+    count: z.number().int().min(1).max(20).default(10),
+    topics: z.array(z.string()).optional(),
+    instruction: z.string().max(500).optional(),
 });
 
 const quizGenSchema = z.object({
@@ -116,18 +120,85 @@ router.post('/content-prep', requireAuth, validate(contentPrepSchema), async (re
     }
 });
 
+router.get('/question-bank', requireAuth, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).uid;
+    const courseId = String(req.query.courseId || '');
+    if (!courseId) { res.status(400).json({ error: 'courseId is required' }); return; }
+
+    try {
+        const snapshot = await adminDb
+            .collection(`users/${userId}/courses/${courseId}/questionBank`)
+            .get();
+        const questions = snapshot.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .sort((a: any, b: any) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+        res.json({ success: true, questions });
+    } catch (error: any) {
+        console.error('get-question-bank error:', error.message);
+        res.status(500).json({ error: 'Failed to load question bank' });
+    }
+});
+
 router.post('/generate-questions', requireAuth, validate(questionBankSchema), async (req, res) => {
-    const { courseId, instruction } = req.body;
+    const { courseId, type, difficulty, count, topics, instruction } = req.body;
     const userId = (req as AuthenticatedRequest).uid;
 
     try {
-        const questionBank = await generateQuestionBank(instruction, userId, courseId);
-        const courseRef = adminDb.doc(`users/${userId}/courses/${courseId}`);
-        await courseRef.set({ questionBank }, { merge: true });
-        res.json({ success: true, questionBank });
+        const config: QBConfig = { type, difficulty, count, topics, instruction };
+        const generated = await generateQuestions(userId, courseId, config);
+
+        const bankRef = adminDb.collection(`users/${userId}/courses/${courseId}/questionBank`);
+        const batch = adminDb.batch();
+        const now = new Date().toISOString();
+        const saved: any[] = [];
+
+        for (const q of generated) {
+            const docRef = bankRef.doc();
+            batch.set(docRef, { ...q, createdAt: now });
+            saved.push({ id: docRef.id, ...q, createdAt: now });
+        }
+        await batch.commit();
+
+        res.json({ success: true, questions: saved });
     } catch (error: any) {
         console.error('generate-questions error:', error.message);
         res.status(500).json({ error: error.message || 'Question bank generation failed' });
+    }
+});
+
+router.delete('/question-bank/:questionId', requireAuth, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).uid;
+    const { questionId } = req.params;
+    const courseId = String(req.query.courseId || '');
+    if (!courseId) { res.status(400).json({ error: 'courseId is required' }); return; }
+
+    try {
+        await adminDb
+            .doc(`users/${userId}/courses/${courseId}/questionBank/${questionId}`)
+            .delete();
+        res.json({ success: true });
+    } catch (error: any) {
+        console.error('delete-question error:', error.message);
+        res.status(500).json({ error: 'Failed to delete question' });
+    }
+});
+
+router.delete('/question-bank', requireAuth, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).uid;
+    const courseId = String(req.query.courseId || '');
+    if (!courseId) { res.status(400).json({ error: 'courseId is required' }); return; }
+
+    try {
+        const snapshot = await adminDb
+            .collection(`users/${userId}/courses/${courseId}/questionBank`)
+            .get();
+        const batch = adminDb.batch();
+        snapshot.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+        res.json({ success: true });
+    } catch (error: any) {
+        console.error('clear-question-bank error:', error.message);
+        res.status(500).json({ error: 'Failed to clear question bank' });
     }
 });
 
