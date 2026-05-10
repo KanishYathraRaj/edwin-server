@@ -1,8 +1,11 @@
+const OLLAMA_ENDPOINT = process.env.OLLAMA_ENDPOINT ?? 'http://localhost:11434';
+const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    ?? 'llama3.2';
+
 export async function ask(prompt: string): Promise<string> {
-    const response = await fetch("http://localhost:11434/api/generate", {
+    const response = await fetch(`${OLLAMA_ENDPOINT}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "llama3.2", prompt, stream: false }),
+        body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false }),
     });
 
     if (!response.ok) {
@@ -14,10 +17,10 @@ export async function ask(prompt: string): Promise<string> {
 }
 
 export async function* askStream(prompt: string): AsyncGenerator<string> {
-    const response = await fetch("http://localhost:11434/api/generate", {
+    const response = await fetch(`${OLLAMA_ENDPOINT}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "llama3.2", prompt, stream: true }),
+        body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: true }),
     });
 
     if (!response.ok) {

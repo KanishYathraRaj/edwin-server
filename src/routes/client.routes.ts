@@ -12,6 +12,13 @@ import { validate } from '../middleware/validate';
 
 const router = Router();
 
+function sanitizeError(err: unknown, fallback: string): string {
+    if (process.env.NODE_ENV !== 'production') {
+        return err instanceof Error ? err.message : fallback;
+    }
+    return fallback;
+}
+
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
 const agentChatSchema = z.object({
@@ -57,12 +64,15 @@ router.post('/agent-chat', requireAuth, validate(agentChatSchema), async (req, r
     res.setHeader('Connection', 'keep-alive');
     res.write('data: {"type":"start"}\n\n');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
     let fullResponse = '';
     try {
         const prompt = await buildPrompt(message, userId, courseId);
         for await (const chunk of askStream(prompt)) {
             fullResponse += chunk;
             res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+            if (controller.signal.aborted) break;
         }
 
         // Persist chat after streaming completes
@@ -79,6 +89,7 @@ router.post('/agent-chat', requireAuth, validate(agentChatSchema), async (req, r
         console.error('agent-chat error:', error.message);
         res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI generation failed' })}\n\n`);
     } finally {
+        clearTimeout(timeoutId);
         res.end();
     }
 });
@@ -94,7 +105,7 @@ router.post('/plan-lesson', requireAuth, validate(courseActionSchema), async (re
         res.json({ success: true, syllabus });
     } catch (error: any) {
         console.error('plan-lesson error:', error.message);
-        res.status(500).json({ error: error.message || 'Lesson planning failed' });
+        res.status(500).json({ error: sanitizeError(error, 'Lesson planning failed') });
     }
 });
 
@@ -107,15 +118,19 @@ router.post('/content-prep', requireAuth, validate(contentPrepSchema), async (re
     res.setHeader('Connection', 'keep-alive');
     res.write('data: {"type":"start"}\n\n');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
     try {
         for await (const chunk of prepareContentStream(userId, courseId, topics, description)) {
             res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+            if (controller.signal.aborted) break;
         }
         res.write('data: {"type":"done"}\n\n');
     } catch (error: any) {
         console.error('content-prep error:', error.message);
         res.write(`data: ${JSON.stringify({ type: 'error', message: 'Content generation failed' })}\n\n`);
     } finally {
+        clearTimeout(timeoutId);
         res.end();
     }
 });
@@ -162,7 +177,7 @@ router.post('/generate-questions', requireAuth, validate(questionBankSchema), as
         res.json({ success: true, questions: saved });
     } catch (error: any) {
         console.error('generate-questions error:', error.message);
-        res.status(500).json({ error: error.message || 'Question bank generation failed' });
+        res.status(500).json({ error: sanitizeError(error, 'Question bank generation failed') });
     }
 });
 
@@ -212,14 +227,14 @@ router.post('/generate-quiz', requireAuth, validate(quizGenSchema), async (req, 
         res.json({ success: true, quiz });
     } catch (error: any) {
         console.error('generate-quiz error:', error.message);
-        res.status(500).json({ error: error.message || 'Quiz generation failed' });
+        res.status(500).json({ error: sanitizeError(error, 'Quiz generation failed') });
     }
 });
 
 // Global route error wrapper
 router.use((err: Error, _req: any, res: any, _next: any) => {
     console.error('Route error:', err.message);
-    res.status(500).json({ error: 'Request failed', details: err.message });
+    res.status(500).json({ error: 'Request failed' });
 });
 
 export default router;

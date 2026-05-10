@@ -3,6 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import clientRouter from './routes/client.routes';
 import resourceRouter from './routes/resource.routes';
+import { adminDb } from './lib/firebase-admin';
 
 // Validate required environment variables at startup
 const required = [
@@ -74,8 +75,24 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
     next();
 });
 
-app.get('/health', (_req, res) => {
-    res.json({ ok: true, timestamp: new Date().toISOString() });
+app.use((req: Request, res: Response, next: NextFunction) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const uid = (req as any).uid ?? '-';
+        console.log(`${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms uid=${uid}`);
+    });
+    next();
+});
+
+app.get('/health', async (_req, res) => {
+    const checks: Record<string, 'ok' | 'error'> = {};
+    try {
+        await adminDb.collection('__health__').limit(1).get();
+        checks.firestore = 'ok';
+    } catch { checks.firestore = 'error'; }
+    checks.llm = ['gemini', 'ollama'].includes(process.env.LLM ?? '') ? 'ok' : 'error';
+    const allOk = Object.values(checks).every(v => v === 'ok');
+    res.status(allOk ? 200 : 503).json({ ok: allOk, checks, timestamp: new Date().toISOString() });
 });
 
 app.use('/', clientRouter);
@@ -87,10 +104,13 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     res.status(500).json({ error: 'Internal server error' });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT ?? '3000', 10);
+if (isNaN(PORT)) { console.error('Invalid PORT'); process.exit(1); }
+
+let server: ReturnType<typeof app.listen>;
 
 async function startServer() {
-    const server = app.listen(PORT, () => {
+    server = app.listen(PORT, () => {
         console.log(`Edwin server running on port ${PORT}`);
         console.log(`CORS allowed origins: ${allowedOrigins.join(', ')}`);
     });
@@ -103,6 +123,14 @@ async function startServer() {
         }
         process.exit(1);
     });
+
+    const shutdown = (signal: string) => {
+        console.log(`${signal} — shutting down gracefully`);
+        server.close(() => process.exit(0));
+        setTimeout(() => process.exit(1), 10_000).unref();
+    };
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT',  () => shutdown('SIGINT'));
 }
 
 startServer();

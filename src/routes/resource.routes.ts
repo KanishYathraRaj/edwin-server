@@ -6,6 +6,13 @@ import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 
+function sanitizeError(err: unknown, fallback: string): string {
+    if (process.env.NODE_ENV !== 'production') {
+        return err instanceof Error ? err.message : fallback;
+    }
+    return fallback;
+}
+
 const ALLOWED_MIME_TYPES = [
     'application/pdf',
     'application/msword',
@@ -68,7 +75,7 @@ router.post('/upload_syllabus', requireAuth, upload.single('data'), async (req, 
         res.json({ success: true, message: 'Syllabus uploaded successfully' });
     } catch (error: any) {
         console.error('upload_syllabus error:', error.message);
-        res.status(500).json({ error: error.message || 'Upload failed' });
+        res.status(500).json({ error: sanitizeError(error, 'Upload failed') });
     }
 });
 
@@ -100,7 +107,7 @@ router.post('/upload_reference', requireAuth, upload.array('references', 10), as
         res.json({ success: true, message: `${files.length} reference(s) uploaded` });
     } catch (error: any) {
         console.error('upload_reference error:', error.message);
-        res.status(500).json({ error: error.message || 'Upload failed' });
+        res.status(500).json({ error: sanitizeError(error, 'Upload failed') });
     }
 });
 

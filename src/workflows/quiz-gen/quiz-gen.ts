@@ -21,7 +21,8 @@ const typeGuide: Record<QuizType, string> = {
 
 export async function generateQuiz(userId: string, courseId: string, config: QuizConfig) {
     const courseSnap = await adminDb.doc(`users/${userId}/courses/${courseId}`).get();
-    const course = courseSnap.data();
+    if (!courseSnap.exists) throw new Error('Course not found');
+    const course = courseSnap.data()!;
 
     const searchQuery = config.topics?.length
         ? `Topics: ${config.topics.join(', ')}`

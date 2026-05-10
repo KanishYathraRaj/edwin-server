@@ -32,7 +32,8 @@ const typeGuide: Record<QBType, string> = {
 
 export async function generateQuestions(userId: string, courseId: string, config: QBConfig): Promise<GeneratedQuestion[]> {
     const courseSnap = await adminDb.doc(`users/${userId}/courses/${courseId}`).get();
-    const course = courseSnap.data();
+    if (!courseSnap.exists) throw new Error('Course not found');
+    const course = courseSnap.data()!;
 
     const searchQuery = config.topics?.length
         ? config.topics.join(', ')
